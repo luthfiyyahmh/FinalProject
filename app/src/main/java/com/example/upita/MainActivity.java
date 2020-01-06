@@ -7,19 +7,25 @@ import androidx.recyclerview.widget.RecyclerView;
 import android.app.ProgressDialog;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.graphics.drawable.BitmapDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.util.Base64;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.widget.TextView;
 import android.widget.Toast;
 
+import com.android.volley.DefaultRetryPolicy;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
 import com.android.volley.Response;
+import com.android.volley.RetryPolicy;
 import com.android.volley.VolleyError;
 import com.android.volley.toolbox.JsonObjectRequest;
+import com.android.volley.toolbox.StringRequest;
 import com.android.volley.toolbox.Volley;
 import com.example.upita.Adapter.BarangAdapter;
 import com.example.upita.Model.BarangModel;
@@ -28,9 +34,13 @@ import com.theartofdev.edmodo.cropper.CropImage;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Random;
 
 
 public class MainActivity extends AppCompatActivity {
@@ -42,9 +52,13 @@ public class MainActivity extends AppCompatActivity {
     Bitmap mImageBitmap;
     static int now = 0;
     private RequestQueue mQueue;
+    private static final String URL = "http://192.168.0.195:5000/upload";
+    public static int totalharga = 0;
+
 
     BarangAdapter mAdapter;
     RecyclerView rvBarang;
+    TextView totalhrg;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -53,6 +67,14 @@ public class MainActivity extends AppCompatActivity {
 
         rvBarang = findViewById(R.id.rv_barang);
         mQueue = Volley.newRequestQueue(this);
+        totalhrg = findViewById(R.id.total_belanja);
+        mAdapter = new BarangAdapter(MainActivity.this, data);
+        mAdapter.setOnDataChangeListener(new BarangAdapter.OnDataChangeListener() {
+            @Override
+            public void onDataChanged(int size) {
+                totalhrg.setText(String.valueOf(totalharga));
+            }
+        });
     }
 
     @Override
@@ -100,58 +122,135 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    protected void jsonParse(Bitmap gambar) {
+    protected void jsonParse(final Bitmap gambar) {
         ProgressDialog pdLoading = new ProgressDialog(MainActivity.this);
         pdLoading.setMessage("\tLoading...");
         pdLoading.setCancelable(false);
         pdLoading.show();
 
-        String url = "https://api.myjson.com/bins/1gjsvy"; //Url API
+        StringRequest stringRequest = new StringRequest(Request.Method.POST, URL, new Response.Listener<String>() {
+            @Override
+            public void onResponse(String response) {
+                String s = response.trim();
+                JSONObject jsonresponse = null;
+                try {
+                    jsonresponse = new JSONObject(response);
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
+                if (!s.equalsIgnoreCase("Loi")) {
+                    Toast.makeText(MainActivity.this, "Success", Toast.LENGTH_LONG).show();
 
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, url, null,
-                new Response.Listener<JSONObject>() {
-                    @Override
-                    public void onResponse(JSONObject response) {
-                        try {
-                            //Disini parsing JSONnya sesuai dengan bentuk JSON
-                            String namabrg = response.getString("nama");
-                            String hargabrg = response.getString("harga");
-                            int jumlah = 1;
+                    try {
+                        //Disini parsing JSONnya sesuai dengan bentuk JSON
+                        String namabrg = jsonresponse.getString("nama");
+                        String hargabrg = jsonresponse.getString("harga");
+                        int jumlah = 1;
 
-                            BarangModel barangModel = new BarangModel();
-                            barangModel.setHarga(hargabrg); //Ini buat set ke textview atau layout
-                            barangModel.setNama(namabrg);
-                            barangModel.setJumlah(1);
-
-                            Log.d("Response JSON", namabrg + " : " + hargabrg);
-
-                            data.add(barangModel);
-                            if(now != 0){
-                                now = 1;
-                            }else{
-                                mAdapter.notifyDataSetChanged();
-                            }
+                        BarangModel barangModel = new BarangModel();
+                        barangModel.setHarga(hargabrg); //Ini buat set ke textview atau layout
+                        barangModel.setNama(namabrg);
+                        barangModel.setJumlah(1);
+                        totalharga += Integer.parseInt(hargabrg);
+                        totalhrg.setText(String.valueOf(totalharga));
 
 
-                        } catch (JSONException e) {
-                            e.printStackTrace();
+                        Log.d("Response JSON", namabrg + " : " + hargabrg);
+
+                        data.add(barangModel);
+                        if (now != 0) {
+                            now = 1;
+                        } else {
+                            mAdapter.notifyDataSetChanged();
                         }
+                    }catch (Exception e){
+                        System.out.println(e.toString());
                     }
-                }, new Response.ErrorListener() {
+                }else {
+                    Toast.makeText(MainActivity.this, "Error", Toast.LENGTH_SHORT).show();
+                }
+            }
+        }, new Response.ErrorListener() {
             @Override
             public void onErrorResponse(VolleyError error) {
-                error.printStackTrace();
+                Toast.makeText(MainActivity.this, error.toString(), Toast.LENGTH_SHORT).show();
             }
-        });
+        }) {
+            @Override
+            protected Map<String, String> getParams() {
+                String image = getStringImage(gambar);
+                Map<String, String> params = new HashMap<String, String>();
+                Random random = new Random();
+                int randomNumber = random.nextInt(999999 - 100000) + 100000;
+                String fileName = "Image" + String.valueOf(randomNumber)+".png";
+                params.put("FileName",fileName);
+                params.put("IMG", image);
+                return params;
+            }
+        };
+        {
+            int socketTimeout = 30000;
+            RetryPolicy policy = new DefaultRetryPolicy(socketTimeout, DefaultRetryPolicy.DEFAULT_MAX_RETRIES, DefaultRetryPolicy.DEFAULT_BACKOFF_MULT);
+            stringRequest.setRetryPolicy(policy);
+            RequestQueue requestQueue = Volley.newRequestQueue(MainActivity.this);
+            rvBarang.setHasFixedSize(true);
+            rvBarang.setAdapter(mAdapter);
+            rvBarang.setLayoutManager(new LinearLayoutManager(MainActivity.this));
+            pdLoading.dismiss();
+            requestQueue.add(stringRequest);
+        }
 
-        rvBarang.setHasFixedSize(true);
-        mAdapter = new BarangAdapter(MainActivity.this, data);
-        rvBarang.setAdapter(mAdapter);
-        rvBarang.setLayoutManager(new LinearLayoutManager(MainActivity.this));
-
-        pdLoading.dismiss();
-
-        mQueue.add(request);
+//        JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, url, null,
+//                new Response.Listener<JSONObject>() {
+//                    @Override
+//                    public void onResponse(JSONObject response) {
+//                        try {
+//                            //Disini parsing JSONnya sesuai dengan bentuk JSON
+//                            String namabrg = response.getString("nama");
+//                            String hargabrg = response.getString("harga");
+//                            int jumlah = 1;
+//
+//                            BarangModel barangModel = new BarangModel();
+//                            barangModel.setHarga(hargabrg); //Ini buat set ke textview atau layout
+//                            barangModel.setNama(namabrg);
+//                            barangModel.setJumlah(1);
+//
+//                            Log.d("Response JSON", namabrg + " : " + hargabrg);
+//
+//                            data.add(barangModel);
+//                            if(now != 0){
+//                                now = 1;
+//                            }else{
+//                                mAdapter.notifyDataSetChanged();
+//                            }
+//
+//
+//                        } catch (JSONException e) {
+//                            e.printStackTrace();
+//                        }
+//                    }
+//                }, new Response.ErrorListener() {
+//            @Override
+//            public void onErrorResponse(VolleyError error) {
+//                error.printStackTrace();
+//            }
+//        });
+//
+//        rvBarang.setHasFixedSize(true);
+//        mAdapter = new BarangAdapter(MainActivity.this, data);
+//        rvBarang.setAdapter(mAdapter);
+//        rvBarang.setLayoutManager(new LinearLayoutManager(MainActivity.this));
+//
+//        pdLoading.dismiss();
+//
+//        mQueue.add(request);
+    }
+    public String getStringImage(Bitmap bm) {
+        ByteArrayOutputStream ba = new ByteArrayOutputStream();
+        bm.compress(Bitmap.CompressFormat.JPEG, 100, ba);
+        byte[] imagebyte = ba.toByteArray();
+        String encode = Base64.encodeToString(imagebyte, Base64.DEFAULT);
+        return encode;
     }
 
     @Override
