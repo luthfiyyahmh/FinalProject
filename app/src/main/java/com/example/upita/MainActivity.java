@@ -42,7 +42,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
-
 public class MainActivity extends AppCompatActivity {
 
     private List<BarangModel> data = new ArrayList<>();
